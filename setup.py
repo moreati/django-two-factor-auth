@@ -15,6 +15,7 @@ setup(
         'Django>=1.4.2,<1.8.99,!=1.5.*,!=1.6.*',
         'django_otp>=0.2.0,<0.2.99',
         'qrcode>=4.0.0,<4.99',
+        'python-u2flib-server',
     ],
     include_package_data=True,
     classifiers=[

@@ -16,10 +16,14 @@ except ImportError:
     RemoteYubikeyDevice = YubikeyDevice = None
 
 from .models import (PhoneDevice, get_available_phone_methods,
+                     U2FDevice,
                      get_available_methods)
 
 
 class MethodForm(forms.Form):
+    """
+    A form to choose a two-factor authentication method (e.g. SMS, OTP).
+    """ 
     method = forms.ChoiceField(label=_("Method"),
                                initial='generator',
                                widget=forms.RadioSelect)
@@ -30,6 +34,10 @@ class MethodForm(forms.Form):
 
 
 class PhoneNumberMethodForm(ModelForm):
+    """
+    A form to provide a phone number, & choose how it's used for
+    two-factor authentication.
+    """
     method = forms.ChoiceField(widget=forms.RadioSelect, label=_('Method'))
 
     class Meta:
@@ -48,6 +56,9 @@ class PhoneNumberForm(ModelForm):
 
 
 class DeviceValidationForm(forms.Form):
+    """
+    A form that validates the token provided by a new authentication device.
+    """
     token = forms.IntegerField(label=_("Token"), min_value=1, max_value=int('9' * totp_digits()))
 
     error_messages = {
@@ -65,7 +76,30 @@ class DeviceValidationForm(forms.Form):
         return token
 
 
+class U2FDeviceForm(DeviceValidationForm):
+    """
+    A form that validates the registration response of a new U2F device.
+    """
+    token = forms.CharField(label=_("U2F device"))
+
+    error_messages = {
+        'invalid_token': _("The U2F response could not be verified."),
+    }
+
+    class Media:
+        js = ('https://demo.yubico.com/js/u2f-api.js',)
+
+    def clean_token(self):
+        response = self.cleaned_data['token']
+        if not self.device.verify_registration(response):
+            raise forms.ValidationError(self.error_messages['invalid_token'])
+        return response
+
+
 class YubiKeyDeviceForm(DeviceValidationForm):
+    """
+    A form that validates the OTP token of a new Yubikey device.
+    """
     token = forms.CharField(label=_("YubiKey"))
 
     error_messages = {
@@ -78,6 +112,10 @@ class YubiKeyDeviceForm(DeviceValidationForm):
 
 
 class TOTPDeviceForm(forms.Form):
+    """
+    A form that verifies a Time-based One Time Password (TOTP) token,
+    using a secret key.
+    """
     token = forms.IntegerField(label=_("Token"), min_value=0, max_value=int('9' * totp_digits()))
 
     error_messages = {
@@ -128,12 +166,22 @@ class TOTPDeviceForm(forms.Form):
 
 
 class DisableForm(forms.Form):
+    """
+    A form for confirming that two-factor authentication should be disabled.
+    """
     understand = forms.BooleanField(label=_("Yes, I am sure"))
 
 
 class AuthenticationTokenForm(OTPAuthenticationFormMixin, Form):
+    """
+    A form for authenticating users with their token.
+    Usually a second authentication factor, in addition to a password.
+    """
     otp_token = forms.IntegerField(label=_("Token"), min_value=1,
                                    max_value=int('9' * totp_digits()))
+
+    class Media:
+        js = ('https://demo.yubico.com/js/u2f-api.js',)
 
     def __init__(self, user, initial_device, **kwargs):
         """
@@ -152,10 +200,26 @@ class AuthenticationTokenForm(OTPAuthenticationFormMixin, Form):
                 isinstance(initial_device, (RemoteYubikeyDevice, YubikeyDevice)):
             self.fields['otp_token'] = forms.CharField(label=_('YubiKey'))
 
+        elif isinstance(initial_device, U2FDevice):
+            self.fields['otp_token'] = forms.CharField(label=_('U2F device'))
+
     def clean(self):
         self.clean_otp(self.user)
         return self.cleaned_data
 
 
 class BackupTokenForm(AuthenticationTokenForm):
+    """
+    A form for authenticating users with a backup device/token.
+
+    Use of a backup token might imply a security problem, e.g.
+     - the user's other token(s) have been lost or stolen
+     - the user's other token(s) have been compromised
+     - an attacker is attempting to bypass the user's other token(s)
+
+    Alternatively use of a backup token may be routine, e.g.
+     - the user's other token(s) are have no signal, or battery
+     - the user is authenticating on a web browser/user agent
+       that's incompatiable with their other token(s)
+    """
     otp_token = forms.CharField(label=_("Token"))

@@ -2,6 +2,7 @@
 {% load i18n %}
 
 {% block content %}
+{{ wizard.form.media }}
   <h1>{% block title %}{% trans "Enable Two-Factor Authentication" %}{% endblock %}</h1>
   {% if wizard.steps.current == 'welcome' %}
     <p>{% blocktrans %}You are about to take your account security to the
@@ -35,6 +36,20 @@
     <p>{% blocktrans %}To identify and verify your YubiKey, please insert a
       token in the field below. Your YubiKey will be linked to your
       account.{% endblocktrans %}</p>
+  {% elif wizard.steps.current == 'u2f' %}
+    <p>{% blocktrans %}Please activate your U2F device.{% endblocktrans %}</p>
+    <script>
+    var u2f_register_challenge = {{ u2f_register_challenge|safe }};
+    var u2f_sign_requests = {{ u2f_sign_requests|safe }};
+    u2f.register([u2f_register_challenge], u2f_sign_requests, function(resp) {
+        var input = document.getElementById("id_u2f-token");
+        var form = input.form;
+        input.value = JSON.stringify(resp);
+        if ( true ) {
+            form.submit();
+        }
+    });
+    </script>
   {% endif %}
 
   <form action="" method="post">{% csrf_token %}

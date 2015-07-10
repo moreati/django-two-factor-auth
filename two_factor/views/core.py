@@ -27,6 +27,8 @@ try:
 except ImportError:
     ValidationService = RemoteYubikeyDevice = None
 
+from u2flib_server import u2f_v2 as u2f
+
 import qrcode
 import qrcode.image.svg
 
@@ -34,8 +36,10 @@ from ..compat import import_string
 from ..compat import get_current_site
 from ..forms import (MethodForm, TOTPDeviceForm, PhoneNumberMethodForm,
                      DeviceValidationForm, AuthenticationTokenForm,
+                     U2FDeviceForm,
                      PhoneNumberForm, BackupTokenForm, YubiKeyDeviceForm)
 from ..models import PhoneDevice, get_available_phone_methods
+from ..models import U2FDevice
 from ..utils import (get_otpauth_url, default_device,
                      backup_phones)
 from .utils import (IdempotentSessionWizardView, class_view_decorator)
@@ -208,6 +212,7 @@ class SetupView(IdempotentSessionWizardView):
         ('call', PhoneNumberForm),
         ('validation', DeviceValidationForm),
         ('yubikey', YubiKeyDeviceForm),
+        ('u2f', U2FDeviceForm),
     )
     condition_dict = {
         'generator': lambda self: self.get_method() == 'generator',
@@ -215,9 +220,11 @@ class SetupView(IdempotentSessionWizardView):
         'sms': lambda self: self.get_method() == 'sms',
         'validation': lambda self: self.get_method() in ('sms', 'call'),
         'yubikey': lambda self: self.get_method() == 'yubikey',
+        'u2f': lambda self: self.get_method() == 'u2f',
     }
     idempotent_dict = {
         'yubikey': False,
+        'u2f': False,  # TODO Is this correct?
     }
 
     def get_method(self):
@@ -255,6 +262,14 @@ class SetupView(IdempotentSessionWizardView):
             device = self.get_device()
             device.save()
 
+        elif self.get_method() == 'u2f':
+            device = self.get_device()
+            response = self.storage.validated_step_data['u2f']['token']
+            device.verify_registration(response)
+            assert device.public_key
+            assert device.key_handle
+            device.save()
+
         else:
             raise NotImplementedError("Unknown method '%s'" % self.get_method())
 
@@ -268,7 +283,7 @@ class SetupView(IdempotentSessionWizardView):
                 'key': self.get_key(step),
                 'user': self.request.user,
             })
-        if step in ('validation', 'yubikey'):
+        if step in ('validation', 'yubikey', 'u2f'):
             kwargs.update({
                 'device': self.get_device()
             })
@@ -307,6 +322,15 @@ class SetupView(IdempotentSessionWizardView):
                 raise KeyError("Multiple ValidationService found with name 'default'")
             return RemoteYubikeyDevice(**kwargs)
 
+        if method == 'u2f':
+            app_id = 'https://{host}'.format(host=self.request.get_host())
+            challenge = self.storage.extra_data.get('u2f_register_challenge')
+            response = self.storage.validated_step_data.get('u2f', {}).get('token', '')
+            print 'extra_data', self.storage.extra_data
+            print 'validated_step_data', self.storage.validated_step_data
+            print 'response', response
+            return U2FDevice(app_id=app_id, challenge=challenge, **kwargs)
+
     def get_key(self, step):
         self.storage.extra_data.setdefault('keys', {})
         if step in self.storage.extra_data['keys']:
@@ -325,8 +349,21 @@ class SetupView(IdempotentSessionWizardView):
             context.update({
                 'QR_URL': reverse(self.qrcode_url)
             })
+
+        elif self.steps.current == 'u2f':
+            device = self.get_device()
+            message = device.generate_registration()
+            self.storage.extra_data['u2f_register_challenge'] = device.challenge
+            context['u2f_register_challenge'] = device.challenge
+
+            devices = self.request.user.u2fdevice_set.all()
+            #sign_requests = [u2f.start_authenticate(device.to_json())
+            #                 for device in devices]
+            context['u2f_sign_requests'] = []
+
         elif self.steps.current == 'validation':
             context['device'] = self.get_device()
+
         context['cancel_url'] = settings.LOGIN_REDIRECT_URL
         return context
 

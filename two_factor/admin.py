@@ -12,6 +12,7 @@ from django.shortcuts import redirect
 
 from .utils import monkeypatch_method
 from .models import PhoneDevice
+from .models import U2FDevice
 
 
 class AdminSiteOTPRequiredMixin(object):
@@ -77,3 +78,4 @@ if getattr(settings, 'TWO_FACTOR_PATCH_ADMIN', True):
 
 
 admin.site.register(PhoneDevice)
+admin.site.register(U2FDevice)
