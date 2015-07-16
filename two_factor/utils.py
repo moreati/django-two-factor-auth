@@ -11,6 +11,11 @@ from django.conf import settings
 
 
 def default_device(user):
+    """
+    Returns the default two-factor authenticaton device for a logged in user.
+
+    Returns None if the user is not logged in, or no device is configured.
+    """
     if not user or user.is_anonymous():
         return
     for device in devices_for_user(user):
@@ -19,12 +24,22 @@ def default_device(user):
 
 
 def backup_phones(user):
+    """
+    Returns the backup phone devices for a logged in user.
+
+    Returns None if the user is not logged in, or no device is configured.
+    """
     if not user or user.is_anonymous():
         return PhoneDevice.objects.none()
     return user.phonedevice_set.filter(name='backup')
 
 
 def get_otpauth_url(accountname, secret, issuer=None, digits=None):
+    """
+    Returns an OTPAuth Key URI of the form otpauth://TYPE/LABEL?PARAMETERS.
+
+    Currently only handles TYPE=TOTP.
+    """
     # For a complete run-through of all the parameters, have a look at the
     # specs at:
     # https://github.com/google/google-authenticator/wiki/Key-Uri-Format

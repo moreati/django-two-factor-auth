@@ -20,6 +20,9 @@ from .models import (PhoneDevice, get_available_phone_methods,
 
 
 class MethodForm(forms.Form):
+    """
+    A form to choose a two-factor authentication method (e.g. SMS, OTP).
+    """ 
     method = forms.ChoiceField(label=_("Method"),
                                initial='generator',
                                widget=forms.RadioSelect)
@@ -30,6 +33,10 @@ class MethodForm(forms.Form):
 
 
 class PhoneNumberMethodForm(ModelForm):
+    """
+    A form to provide a phone number, & choose how it's used for
+    two-factor authentication.
+    """
     method = forms.ChoiceField(widget=forms.RadioSelect, label=_('Method'))
 
     class Meta:
@@ -42,12 +49,18 @@ class PhoneNumberMethodForm(ModelForm):
 
 
 class PhoneNumberForm(ModelForm):
+    """
+    A form to provide a phone number for two-factor authentication.
+    """
     class Meta:
         model = PhoneDevice
         fields = 'number',
 
 
 class DeviceValidationForm(forms.Form):
+    """
+    A form that validates the token provided by a new authentication device.
+    """
     token = forms.IntegerField(label=_("Token"), min_value=1, max_value=int('9' * totp_digits()))
 
     error_messages = {
@@ -66,6 +79,9 @@ class DeviceValidationForm(forms.Form):
 
 
 class YubiKeyDeviceForm(DeviceValidationForm):
+    """
+    A form that validates the OTP token of a new Yubikey device.
+    """
     token = forms.CharField(label=_("YubiKey"))
 
     error_messages = {
@@ -78,6 +94,10 @@ class YubiKeyDeviceForm(DeviceValidationForm):
 
 
 class TOTPDeviceForm(forms.Form):
+    """
+    A form that verifies a Time-based One Time Password (TOTP) token,
+    of a new device
+    """
     token = forms.IntegerField(label=_("Token"), min_value=0, max_value=int('9' * totp_digits()))
 
     error_messages = {
@@ -128,10 +148,17 @@ class TOTPDeviceForm(forms.Form):
 
 
 class DisableForm(forms.Form):
+    """
+    A form for confirming that two-factor authentication should be disabled.
+    """
     understand = forms.BooleanField(label=_("Yes, I am sure"))
 
 
 class AuthenticationTokenForm(OTPAuthenticationFormMixin, Form):
+    """
+    A form for authenticating users with their token.
+    Usually a second authentication factor, in addition to a password.
+    """
     otp_token = forms.IntegerField(label=_("Token"), min_value=1,
                                    max_value=int('9' * totp_digits()))
 
@@ -158,4 +185,17 @@ class AuthenticationTokenForm(OTPAuthenticationFormMixin, Form):
 
 
 class BackupTokenForm(AuthenticationTokenForm):
+    """
+    A form for authenticating users with a backup device/token.
+
+    Use of a backup token might imply a security problem, e.g.
+     - the user's other token(s) have been lost or stolen
+     - the user's other token(s) have been compromised
+     - an attacker is attempting to bypass the user's other token(s)
+
+    Alternatively use of a backup token may be routine, e.g.
+     - the user's other token(s) are have no signal, or battery
+     - the user is authenticating on a web browser/user agent
+       that's incompatiable with their other token(s)
+    """
     otp_token = forms.CharField(label=_("Token"))
