@@ -15,8 +15,11 @@ try:
 except ImportError:
     RemoteYubikeyDevice = YubikeyDevice = None
 
+from .fields import OTPTokenField, TokenField
 from .models import (PhoneDevice, get_available_phone_methods,
                      get_available_methods)
+from .utils import totp_digits
+from .widgets import OTPTokenInput, TokenInput, TelInput
 
 
 class MethodForm(forms.Form):
@@ -42,6 +45,7 @@ class PhoneNumberMethodForm(ModelForm):
     class Meta:
         model = PhoneDevice
         fields = 'number', 'method',
+        widgets = {'number': TelInput}
 
     def __init__(self, **kwargs):
         super(PhoneNumberMethodForm, self).__init__(**kwargs)
@@ -55,13 +59,15 @@ class PhoneNumberForm(ModelForm):
     class Meta:
         model = PhoneDevice
         fields = 'number',
+        widgets = {'number': TelInput}
 
 
 class DeviceValidationForm(forms.Form):
     """
     A form that validates the token provided by a new authentication device.
     """
-    token = forms.IntegerField(label=_("Token"), min_value=1, max_value=int('9' * totp_digits()))
+    token = OTPTokenField(label=_("Token"),
+                          widget=TokenInput(attrs={'autofocus': True}))
 
     error_messages = {
         'invalid_token': _('Entered token is not valid.'),
@@ -82,7 +88,8 @@ class YubiKeyDeviceForm(DeviceValidationForm):
     """
     A form that validates the OTP token of a new Yubikey device.
     """
-    token = forms.CharField(label=_("YubiKey"))
+    token = TokenField(label=_("YubiKey"),
+                       widget=TokenInput(attrs={'autofocus': True}))
 
     error_messages = {
         'invalid_token': _("The YubiKey could not be verified."),
@@ -159,8 +166,8 @@ class AuthenticationTokenForm(OTPAuthenticationFormMixin, Form):
     A form for authenticating users with their token.
     Usually a second authentication factor, in addition to a password.
     """
-    otp_token = forms.IntegerField(label=_("Token"), min_value=1,
-                                   max_value=int('9' * totp_digits()))
+    otp_token = OTPTokenField(label=_("Token"),
+                              widget=OTPTokenInput(attrs={'autofocus': True}))
 
     def __init__(self, user, initial_device, **kwargs):
         """
@@ -177,7 +184,9 @@ class AuthenticationTokenForm(OTPAuthenticationFormMixin, Form):
         # IntegerField with a CharField.
         if RemoteYubikeyDevice and YubikeyDevice and \
                 isinstance(initial_device, (RemoteYubikeyDevice, YubikeyDevice)):
-            self.fields['otp_token'] = forms.CharField(label=_('YubiKey'))
+            self.fields['otp_token'] = \
+                    TokenField(label=_('YubiKey'),
+                               widget=TokenInput(attrs={'autofocus': True}))
 
     def clean(self):
         self.clean_otp(self.user)
@@ -198,4 +207,5 @@ class BackupTokenForm(AuthenticationTokenForm):
      - the user is authenticating on a web browser/user agent
        that's incompatiable with their other token(s)
     """
-    otp_token = forms.CharField(label=_("Token"))
+    otp_token = TokenField(label=_("Token"),
+                           widget=TokenInput(attrs={'autofocus': True}))
