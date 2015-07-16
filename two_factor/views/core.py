@@ -245,13 +245,7 @@ class SetupView(IdempotentSessionWizardView):
         """
         Finish the wizard. Save all forms and redirect.
         """
-        # TOTPDeviceForm
-        if self.get_method() == 'generator':
-            form = [form for form in form_list if isinstance(form, TOTPDeviceForm)][0]
-            device = form.save()
-
-        # PhoneNumberForm / YubiKeyDeviceForm
-        elif self.get_method() in ('call', 'sms', 'yubikey'):
+        if self.get_method() in ('generator', 'call', 'sms', 'yubikey'):
             device = self.get_device()
             device.save()
 
@@ -263,12 +257,7 @@ class SetupView(IdempotentSessionWizardView):
 
     def get_form_kwargs(self, step=None):
         kwargs = {}
-        if step == 'generator':
-            kwargs.update({
-                'key': self.get_key(step),
-                'user': self.request.user,
-            })
-        if step in ('validation', 'yubikey'):
+        if step in ('generator', 'validation', 'yubikey'):
             kwargs.update({
                 'device': self.get_device()
             })
@@ -282,13 +271,15 @@ class SetupView(IdempotentSessionWizardView):
     def get_device(self, **kwargs):
         """
         Uses the data from the setup step and generated key to recreate device.
-
-        Only used for call / sms -- generator uses other procedure.
         """
         method = self.get_method()
         kwargs = kwargs or {}
         kwargs['name'] = 'default'
         kwargs['user'] = self.request.user
+
+        if method == 'generator':
+            kwargs['key'] = self.get_key(method)
+            return TOTPDevice(**kwargs)
 
         if method in ('call', 'sms'):
             kwargs['method'] = method
