@@ -1,4 +1,3 @@
-from binascii import unhexlify
 from base64 import b32encode
 
 from django.conf import settings
@@ -278,14 +277,16 @@ class SetupView(IdempotentSessionWizardView):
         kwargs['user'] = self.request.user
 
         if method == 'generator':
-            kwargs['key'] = self.get_key(method)
+            default_cb = TOTPDevice._meta.get_field('key').default
+            kwargs['key'] = self.get_key(method, default_cb)
             return TOTPDevice(**kwargs)
 
         if method in ('call', 'sms'):
             kwargs['method'] = method
             kwargs['number'] = self.storage.validated_step_data\
                 .get(method, {}).get('number')
-            return PhoneDevice(key=self.get_key(method), **kwargs)
+            default_cb = TOTPDevice._meta.get_field('key').default
+            return PhoneDevice(key=self.get_key(method, default_cb), **kwargs)
 
         if method == 'yubikey':
             kwargs['public_id'] = self.storage.validated_step_data\
@@ -298,26 +299,23 @@ class SetupView(IdempotentSessionWizardView):
                 raise KeyError("Multiple ValidationService found with name 'default'")
             return RemoteYubikeyDevice(**kwargs)
 
-    def get_key(self, step):
+    def get_key(self, step, default_cb):
         self.storage.extra_data.setdefault('keys', {})
         if step in self.storage.extra_data['keys']:
             return self.storage.extra_data['keys'].get(step)
-        key = random_hex(20).decode('ascii')
+        key = default_cb()
         self.storage.extra_data['keys'][step] = key
         return key
 
     def get_context_data(self, form, **kwargs):
         context = super(SetupView, self).get_context_data(form, **kwargs)
         if self.steps.current == 'generator':
-            key = self.get_key('generator')
-            rawkey = unhexlify(key.encode('ascii'))
-            b32key = b32encode(rawkey).decode('utf-8')
+            rawkey = form.device.bin_key
+            b32key = b32encode(rawkey)
             self.request.session[self.session_key_name] = b32key
             context.update({
                 'QR_URL': reverse(self.qrcode_url)
             })
-        elif self.steps.current == 'validation':
-            context['device'] = self.get_device()
         context['cancel_url'] = settings.LOGIN_REDIRECT_URL
         return context
 
