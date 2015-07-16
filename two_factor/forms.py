@@ -141,6 +141,7 @@ class AuthenticationTokenForm(OTPAuthenticationFormMixin, Form):
     """
     otp_token = OTPTokenField(label=_("Token"),
                               widget=OTPTokenInput(attrs={'autofocus': True}))
+    challenge = forms.CharField(required=False, widget=forms.HiddenInput())
 
     def __init__(self, user, initial_device, **kwargs):
         """

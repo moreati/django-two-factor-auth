@@ -1,5 +1,7 @@
 *.py[co]
 example/database.sqlite
+example/localhost.crt
+example/localhost.key
 example/settings_private.py
 *.egg-info
 /.coverage.*

@@ -1,4 +1,5 @@
 from base64 import b32encode
+import json
 
 from django.conf import settings
 from django.contrib.auth import login as login, REDIRECT_FIELD_NAME
@@ -16,7 +17,9 @@ from django.views.generic.base import View
 
 import django_otp
 from django_otp.decorators import otp_required
+from django_otp.models import Device
 from django_otp.plugins.otp_static.models import StaticToken, StaticDevice
+from django_otp.plugins.otp_totp.models import TOTPDevice
 from django_otp.util import random_hex
 from two_factor import signals
 from two_factor.utils import totp_digits
@@ -25,6 +28,15 @@ try:
     from otp_yubikey.models import ValidationService, RemoteYubikeyDevice
 except ImportError:
     ValidationService = RemoteYubikeyDevice = None
+
+try:
+    from django_u2f.models import U2FDevice
+    from django_u2f.forms import (U2FAuthenticationTokenForm,
+                                  U2FDeviceValidationForm)
+except ImportError:
+    U2FDevice = None
+    U2FAuthenticationTokenForm = None
+    U2FDeviceValidationForm = None
 
 import qrcode
 import qrcode.image.svg
@@ -120,6 +132,26 @@ class LoginView(IdempotentSessionWizardView):
             }
         return {}
 
+    def get_form(self, step=None, data=None, files=None):
+        step_ = step or self.steps.current
+        if step_ == 'token' and not data:
+            initial_device = self.get_form_kwargs(step_)['initial_device']
+            if initial_device and isinstance(initial_device, U2FDevice):
+                message = initial_device.generate_challenge()
+                self.form_list[step_] = U2FAuthenticationTokenForm
+            else:
+                self.form_list[step_] = AuthenticationTokenForm
+
+        return super(LoginView, self).get_form(step, data, files)
+
+    def get_form_initial(self, step):
+        initial =  super(LoginView, self).get_form_initial(step)
+        if step == 'token':
+            initial_device = self.get_form_kwargs(step)['initial_device']
+            if initial_device and isinstance(initial_device, U2FDevice):
+                initial['challenge'] = initial_device.challenge
+        return initial
+
     def get_device(self, step=None):
         """
         Returns the OTP device selected by the user, or his default device.
@@ -146,7 +178,9 @@ class LoginView(IdempotentSessionWizardView):
         either making a phone call or sending a text message.
         """
         if self.steps.current == 'token':
-            self.get_device().generate_challenge()
+            device = self.get_device()
+            if not isinstance(device, U2FDevice):
+                device.generate_challenge()
         return super(LoginView, self).render(form, **kwargs)
 
     def get_user(self):
@@ -207,6 +241,7 @@ class SetupView(IdempotentSessionWizardView):
         ('call', PhoneNumberForm),
         ('validation', DeviceValidationForm),
         ('yubikey', YubiKeyDeviceForm),
+        ('u2f', U2FDeviceValidationForm),
     )
     condition_dict = {
         'generator': lambda self: self.get_method() == 'generator',
@@ -214,9 +249,11 @@ class SetupView(IdempotentSessionWizardView):
         'sms': lambda self: self.get_method() == 'sms',
         'validation': lambda self: self.get_method() in ('sms', 'call'),
         'yubikey': lambda self: self.get_method() == 'yubikey',
+        'u2f': lambda self: U2FDeviceValidationForm and self.get_method() == 'u2f',
     }
     idempotent_dict = {
         'yubikey': False,
+        'u2f': False,
     }
 
     def get_method(self):
@@ -248,6 +285,13 @@ class SetupView(IdempotentSessionWizardView):
             device = self.get_device()
             device.save()
 
+        if self.get_method() == 'u2f':
+            #device = self.get_device()
+            step_data = self.storage.validated_step_data
+            token = step_data['u2f']['token']
+            device.verify_register_token(token)
+            device.save()
+
         else:
             raise NotImplementedError("Unknown method '%s'" % self.get_method())
 
@@ -256,7 +300,7 @@ class SetupView(IdempotentSessionWizardView):
 
     def get_form_kwargs(self, step=None):
         kwargs = {}
-        if step in ('generator', 'validation', 'yubikey'):
+        if step in ('generator', 'validation', 'yubikey', 'u2f'):
             kwargs.update({
                 'device': self.get_device()
             })
@@ -266,6 +310,20 @@ class SetupView(IdempotentSessionWizardView):
                 'metadata': metadata,
             })
         return kwargs
+
+    def get_form_initial(self, step):
+        initial = super(IdempotentSessionWizardView, self).get_form_initial(step) 
+        if step == 'u2f':
+            user = self.request.user
+            device = self.get_device()
+            sign_requests = [device.generate_challenge()
+                             for device in user.u2fdevice_set.all()
+                             if device.is_registered()]
+            initial.update({
+                'challenge': device.challenge,
+                'sign_requests': json.dumps(sign_requests),
+            })
+        return initial
 
     def get_device(self, **kwargs):
         """
@@ -298,6 +356,15 @@ class SetupView(IdempotentSessionWizardView):
             except ValidationService.MultipleObjectsReturned:
                 raise KeyError("Multiple ValidationService found with name 'default'")
             return RemoteYubikeyDevice(**kwargs)
+
+        if method == 'u2f':
+            kwargs['app_id'] = U2FDevice.generate_app_id(self.request)
+            device =  U2FDevice(**kwargs)
+            def default_cb():
+                message = device.generate_register_challenge()
+                return device.challenge
+            device.challenge = self.get_key(method, default_cb)
+            return device
 
     def get_key(self, step, default_cb):
         self.storage.extra_data.setdefault('keys', {})

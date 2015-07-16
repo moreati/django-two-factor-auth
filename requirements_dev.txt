@@ -7,12 +7,14 @@
 Django
 twilio
 django_otp
+django-u2f
 qrcode
 # django-formtools on Django 1.8 and above
 
 # Example app
 
 django-debug-toolbar
+django-extensions
 django-bootstrap-form
 django-user-sessions
 

@@ -15,6 +15,12 @@ try:
 except ImportError:
     yubiotp = None
 
+try:
+    from django_u2f.models import get_available_u2f_methods
+except ImportError:
+    def get_available_u2f_methods():
+        return []
+
 from .gateways import make_call, send_sms
 
 
@@ -53,6 +59,7 @@ def get_available_methods():
     methods = [('generator', _('Token generator'))]
     methods.extend(get_available_phone_methods())
     methods.extend(get_available_yubikey_methods())
+    methods.extend(get_available_u2f_methods())
     return methods
 
 
